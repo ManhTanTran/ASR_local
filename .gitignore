@@ -15,7 +15,7 @@ env/
 
 # ASR artifacts and local data
 artifacts/
-data/
+/data/
 reports/
 rendered/
 figures/
@@ -43,4 +43,3 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
-
