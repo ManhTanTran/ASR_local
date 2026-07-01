@@ -1,6 +1,6 @@
 # Chạy FastConformer trên Kaggle bằng code GitHub
 
-Mục tiêu: tạo Kaggle Notebook, clone code main từ GitHub, train FastConformer trên GPU Kaggle và kiểm tra `results.json` có cùng hướng với bản main.
+Mục tiêu: tạo Kaggle Notebook, clone code từ GitHub, train FastConformer trên GPU Kaggle và kiểm tra `results.json` có cùng hướng với bản main.
 
 ## Repo dùng để chạy
 
@@ -26,10 +26,11 @@ Package train `asr_lab` đã được đưa vào `ASR_local/src/asr_lab` để K
 3. Bật `Internet = On`.
 4. Upload hoặc copy nội dung notebook `02_fastconformer_main.ipynb` vào Kaggle.
 5. Chạy từng cell từ trên xuống:
-   - clone repo main từ GitHub;
+   - clone repo từ GitHub;
    - cài `torch==2.7.1` CUDA 11.8 và `nemo_toolkit[asr]==2.7.3`;
    - verify GPU + NeMo;
-   - chạy `python -m asr_lab.train.finetune_vivos`;
+   - chạy `python -u -m asr_lab.train.finetune_vivos`;
+   - ghi log train vào `train.log`;
    - đọc `results.json`;
    - liệt kê artifact.
 6. Khi train xong, bấm `Save Version` hoặc `Commit` trên Kaggle để lưu output.
@@ -38,6 +39,31 @@ Package train `asr_lab` đã được đưa vào `ASR_local/src/asr_lab` để K
 ```text
 /kaggle/working/runs/vivos-fc115m-v2norm/
 ```
+
+## Xem log khi train
+
+Bản GitHub main hiện có log rõ hơn ở hai chỗ:
+
+- Notebook ghi toàn bộ stdout/stderr vào:
+
+```text
+/kaggle/working/runs/vivos-fc115m-v2norm/train.log
+```
+
+- Source `asr_lab.train.finetune_vivos` in metric định kỳ bằng tham số:
+
+```text
+--console-log-steps 25
+```
+
+Trong output Kaggle bạn sẽ thấy các dòng dạng:
+
+```text
+[train] epoch=0 step=25 train_loss=...
+[val] epoch=0 step=... val_loss=...
+```
+
+Nếu output của Kaggle không tự cuộn xuống dòng mới, chạy cell `Xem log train mới nhất` trong notebook để xem đoạn cuối `train.log`.
 
 ## Config bản main
 
@@ -50,11 +76,13 @@ vocab_size: 1024
 lr: 2e-4
 precision: 32
 max_minutes: 480
+console_log_steps: 25
 ```
 
 ## File kết quả cần kiểm tra
 
 ```text
+train.log
 results.json
 status.json
 metrics.csv
