@@ -4,10 +4,10 @@ Mục tiêu: tạo Kaggle Notebook, clone code main từ GitHub, train FastConfo
 
 ## Repo dùng để chạy
 
-Code train thật nằm trong repo main:
+Code Kaggle sẽ clone từ repo public của bạn:
 
 ```text
-https://github.com/qualphachain/nvidia_asr_nemo.git
+https://github.com/ManhTanTran/ASR_local.git
 ```
 
 Notebook local của bạn nằm ở:
@@ -17,6 +17,7 @@ notebooks/final/fastconformer/02_fastconformer_main.ipynb
 ```
 
 Notebook này không dùng `asr_lab.deploy.kaggle build/push`; nó chạy trực tiếp trên Kaggle bằng `git clone`.
+Package train `asr_lab` đã được đưa vào `ASR_local/src/asr_lab` để Kaggle không cần clone repo main private.
 
 ## Step by step trên Kaggle
 
@@ -61,4 +62,3 @@ nemotron_vivos_ft.nemo
 ```
 
 Nếu `results.json` được sinh ra và WER giảm mạnh so với baseline English-only, nghĩa là luồng GitHub -> Kaggle -> train -> artifact đã chạy đúng. Nếu muốn so với bản main local, tải thư mục run về `ASR/artifacts/runs/vivos-fc115m-v2norm/` rồi chạy report/compare trong repo main.
-
