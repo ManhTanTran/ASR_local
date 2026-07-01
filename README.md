@@ -17,5 +17,14 @@ Account mặc định trong cấu hình local:
 trnmnhtn - Manh Tan Tran
 ```
 
-Notebook FastConformer để `RUN_REMOTE = False` mặc định, chỉ đổi thành `True` khi muốn chạy Kaggle thật.
+Notebook FastConformer bản main chạy trực tiếp trên Kaggle bằng cách clone code từ GitHub:
 
+```text
+notebooks/final/fastconformer/02_fastconformer_main.ipynb
+```
+
+Hướng dẫn từng bước nằm ở:
+
+```text
+docs/06_benchmarks/03_kaggle_github_fastconformer.md
+```
