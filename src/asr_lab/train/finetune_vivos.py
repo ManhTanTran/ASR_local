@@ -33,6 +33,7 @@ from omegaconf import open_dict  # noqa: E402
 
 from asr_lab.data.vivos import dump_split  # noqa: E402  (data-prep dùng chung)
 from asr_lab.common.metrics import normalize_vi, extract_text, wer  # noqa: E402
+from asr_lab.common.run_logging import make_lightning_metric_callback, write_run_status  # noqa: E402
 
 PRETRAINED = "nvidia/nemotron-speech-streaming-en-0.6b"  # default; đổi bằng --pretrained
 
@@ -155,82 +156,6 @@ def configure_finetune(model, data: dict, args, total_steps: int) -> None:
         print(f"đã freeze encoder — chỉ train decoder+joint | warmup={warmup} max_steps={total_steps}")
 
 
-def _metric_value(value) -> float | None:
-    try:
-        if hasattr(value, "detach"):
-            value = value.detach()
-        if hasattr(value, "float"):
-            value = value.float()
-        if hasattr(value, "mean"):
-            value = value.mean()
-        if hasattr(value, "item"):
-            value = value.item()
-    except Exception:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    return None
-
-
-def _format_metric(name: str, value) -> str | None:
-    value = _metric_value(value)
-    if value is None:
-        return None
-    return f"{name}={value:.5g}"
-
-
-def _optimizer_lr(trainer) -> float | None:
-    try:
-        optimizers = getattr(trainer, "optimizers", None) or []
-        if optimizers and optimizers[0].param_groups:
-            return optimizers[0].param_groups[0].get("lr")
-    except Exception:
-        return None
-    return None
-
-
-class ConsoleMetricCallback(pl.Callback):
-    """Print compact metric lines so hosted notebooks show real train progress."""
-
-    def __init__(self, every_n_steps: int = 25):
-        self.every_n_steps = max(0, int(every_n_steps))
-        self._last_train_step = -1
-        self._last_val_epoch = -1
-
-    def _selected_metrics(self, trainer, prefixes: tuple[str, ...]) -> list[str]:
-        metrics = getattr(trainer, "callback_metrics", {}) or {}
-        parts = []
-        for name in sorted(metrics):
-            low = str(name).lower()
-            if any(low.startswith(prefix) for prefix in prefixes) or low in {"loss", "learning_rate"}:
-                part = _format_metric(str(name), metrics[name])
-                if part:
-                    parts.append(part)
-        return parts[:8]
-
-    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx) -> None:
-        if self.every_n_steps <= 0:
-            return
-        step = int(getattr(trainer, "global_step", 0) or 0)
-        if step <= 0 or step == self._last_train_step or step % self.every_n_steps != 0:
-            return
-        self._last_train_step = step
-        parts = self._selected_metrics(trainer, ("train",))
-        lr = _optimizer_lr(trainer)
-        if lr is not None and not any(part.startswith(("lr=", "learning_rate=")) for part in parts):
-            parts.append(f"lr={lr:.5g}")
-        print(f"[train] epoch={trainer.current_epoch} step={step} " + " ".join(parts), flush=True)
-
-    def on_validation_epoch_end(self, trainer, pl_module) -> None:
-        epoch = int(getattr(trainer, "current_epoch", 0) or 0)
-        if epoch == self._last_val_epoch:
-            return
-        self._last_val_epoch = epoch
-        parts = self._selected_metrics(trainer, ("val",))
-        if parts:
-            print(f"[val] epoch={epoch} step={trainer.global_step} " + " ".join(parts), flush=True)
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-id", default="vivos-ft")
@@ -258,9 +183,7 @@ def main() -> None:
         torch.set_num_threads(4)  # an toàn CPU khi smoke local
     run_dir = artifacts_root() / "runs" / args.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "status.json").write_text(json.dumps(
-        {"state": "running", "run_id": args.run_id, "console_log_steps": args.console_log_steps},
-        ensure_ascii=False))
+    write_run_status(run_dir, args.run_id, "running", console_log_steps=args.console_log_steps)
     # Data để NGOÀI run-dir: 11k wav không được lẫn vào artifact pull. Kaggle: ASR_DATA_DIR=/tmp/...
     data_dir = Path(os.environ.get("ASR_DATA_DIR", str(run_dir / "data")))
     print(f"== fine-tune {args.pretrained} | cuda={cuda} | run_dir={run_dir} | data_dir={data_dir} ==", flush=True)
@@ -294,7 +217,7 @@ def main() -> None:
         enable_checkpointing=False, logger=logger,
         enable_progress_bar=True, log_every_n_steps=25,
         val_check_interval=1.0,
-        callbacks=([ConsoleMetricCallback(args.console_log_steps)] if args.console_log_steps > 0 else []),
+        callbacks=([make_lightning_metric_callback(args.console_log_steps)] if args.console_log_steps > 0 else []),
     )
     model.set_trainer(trainer)
     t0 = time.perf_counter()
@@ -320,9 +243,8 @@ def main() -> None:
         "nemo_file": (nemo_path.name if not args.no_save else None),
     }
     (run_dir / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2))
-    (run_dir / "status.json").write_text(json.dumps(
-        {"state": "ok", "run_id": args.run_id, "wer_before": results["wer_before"],
-         "wer_after": results["wer_after"]}, ensure_ascii=False))
+    write_run_status(run_dir, args.run_id, "ok",
+                     wer_before=results["wer_before"], wer_after=results["wer_after"])
     print("RESULTS:", json.dumps(results, ensure_ascii=False), flush=True)
     del model
     gc.collect()

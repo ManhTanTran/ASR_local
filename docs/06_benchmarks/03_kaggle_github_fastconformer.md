@@ -30,7 +30,7 @@ Package train `asr_lab` đã được đưa vào `ASR_local/src/asr_lab` để K
    - cài `torch==2.7.1` CUDA 11.8 và `nemo_toolkit[asr]==2.7.3`;
    - verify GPU + NeMo;
    - chạy `python -u -m asr_lab.train.finetune_vivos`;
-   - ghi log train vào `train.log`;
+   - ghi log các command chính vào `run.log`;
    - đọc `results.json`;
    - liệt kê artifact.
 6. Khi train xong, bấm `Save Version` hoặc `Commit` trên Kaggle để lưu output.
@@ -40,30 +40,43 @@ Package train `asr_lab` đã được đưa vào `ASR_local/src/asr_lab` để K
 /kaggle/working/runs/vivos-fc115m-v2norm/
 ```
 
-## Xem log khi train
+## Xem log khi chạy run/command
 
-Bản GitHub main hiện có log rõ hơn ở hai chỗ:
-
-- Notebook ghi toàn bộ stdout/stderr vào:
+Bản GitHub main hiện có helper dùng chung ở:
 
 ```text
-/kaggle/working/runs/vivos-fc115m-v2norm/train.log
+src/asr_lab/common/run_logging.py
 ```
 
-- Source `asr_lab.train.finetune_vivos` in metric định kỳ bằng tham số:
+Notebook import `run_logged(...)` từ file này sau khi clone repo. Từ đó, mọi command chính như cài package, verify runtime, train model, eval hoặc command khác đều có thể ghi stdout/stderr vào cùng một file log:
+
+```text
+/kaggle/working/runs/vivos-fc115m-v2norm/run.log
+```
+
+Riêng các script train Lightning có thể gắn thêm metric callback dùng chung bằng tham số:
 
 ```text
 --console-log-steps 25
 ```
 
-Trong output Kaggle bạn sẽ thấy các dòng dạng:
+Trong output Kaggle bạn sẽ thấy log command và có thể có các dòng metric dạng:
 
 ```text
+$ python -u -m asr_lab.train.finetune_vivos ...
 [train] epoch=0 step=25 train_loss=...
 [val] epoch=0 step=... val_loss=...
 ```
 
-Nếu output của Kaggle không tự cuộn xuống dòng mới, chạy cell `Xem log train mới nhất` trong notebook để xem đoạn cuối `train.log`.
+Nếu output của Kaggle không tự cuộn xuống dòng mới, chạy cell `Xem log run mới nhất` trong notebook để xem đoạn cuối `run.log`.
+
+Với notebook/script khác, chỉ cần import và gọi:
+
+```python
+from asr_lab.common.run_logging import run_logged
+
+run_logged(cmd, cwd=repo_dir, env=env, log_path=run_dir / "run.log")
+```
 
 ## Config bản main
 
@@ -82,7 +95,7 @@ console_log_steps: 25
 ## File kết quả cần kiểm tra
 
 ```text
-train.log
+run.log
 results.json
 status.json
 metrics.csv
