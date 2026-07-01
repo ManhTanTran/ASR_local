@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments
+.venv/
+venv/
+env/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# ASR artifacts and local data
+artifacts/
+data/
+reports/
+rendered/
+figures/
+publish/
+*.nemo
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.wav
+*.mp3
+*.flac
+
+# Credentials and local secrets
+kaggle.json
+*.pem
+*.key
+*.env
+access_token
+access_token.txt
+
+# OS/editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
