@@ -132,6 +132,22 @@ def _format_metric(name: str, value) -> str | None:
     return f"{name}={value:.5g}"
 
 
+def _find_metric(metrics: Mapping[object, object], candidates: Sequence[str]) -> float | None:
+    for candidate in candidates:
+        if candidate in metrics:
+            value = _metric_value(metrics[candidate])
+            if value is not None:
+                return value
+    lowered = {str(key).lower(): key for key in metrics}
+    for candidate in candidates:
+        key = lowered.get(candidate.lower())
+        if key is not None:
+            value = _metric_value(metrics[key])
+            if value is not None:
+                return value
+    return None
+
+
 def _optimizer_lr(trainer) -> float | None:
     try:
         optimizers = getattr(trainer, "optimizers", None) or []
@@ -155,6 +171,37 @@ def make_lightning_metric_callback(every_n_steps: int = 25):
             self._last_train_step = -1
             self._last_val_epoch = -1
             self._last_train_parts: list[str] = []
+            self._reset_val_accumulators()
+
+        def _reset_val_accumulators(self) -> None:
+            self._val_loss_sum = 0.0
+            self._val_loss_count = 0
+            self._val_wer_sum = 0.0
+            self._val_wer_count = 0
+            self._val_wer_num = 0.0
+            self._val_wer_denom = 0.0
+
+        def _collect_val_output(self, output) -> None:
+            if output is None:
+                return
+            if isinstance(output, Mapping):
+                loss = _find_metric(output, ("val_loss", "validation_loss", "loss"))
+                if loss is not None:
+                    self._val_loss_sum += loss
+                    self._val_loss_count += 1
+                wer = _find_metric(output, ("val_wer", "wer"))
+                if wer is not None:
+                    self._val_wer_sum += wer
+                    self._val_wer_count += 1
+                wer_num = _find_metric(output, ("val_wer_num", "wer_num"))
+                wer_denom = _find_metric(output, ("val_wer_denom", "wer_denom"))
+                if wer_num is not None and wer_denom is not None:
+                    self._val_wer_num += wer_num
+                    self._val_wer_denom += wer_denom
+                return
+            if isinstance(output, (list, tuple)):
+                for item in output:
+                    self._collect_val_output(item)
 
         def _selected_metrics(self, trainer, prefixes: tuple[str, ...]) -> list[str]:
             metrics = getattr(trainer, "callback_metrics", {}) or {}
@@ -172,14 +219,13 @@ def make_lightning_metric_callback(every_n_steps: int = 25):
             parts: list[str] = []
             seen: set[str] = set()
 
+            def add_value(label: str, value: float | None) -> None:
+                if value is not None and label not in seen:
+                    parts.append(f"{label}={value:.5g}")
+                    seen.add(label)
+
             def add(label: str, candidates: tuple[str, ...]) -> None:
-                for candidate in candidates:
-                    if candidate in metrics:
-                        value = _metric_value(metrics[candidate])
-                        if value is not None and label not in seen:
-                            parts.append(f"{label}={value:.5g}")
-                            seen.add(label)
-                            return
+                add_value(label, _find_metric(metrics, candidates))
 
             add("train_loss", ("train_loss", "loss"))
             if "train_loss" not in seen:
@@ -189,7 +235,18 @@ def make_lightning_metric_callback(every_n_steps: int = 25):
                         seen.add("train_loss")
                         break
             add("val_loss", ("val_loss", "validation_loss"))
-            add("val_wer", ("val_wer", "wer", "val_wer_num"))
+            if "val_loss" not in seen and self._val_loss_count:
+                add_value("val_loss", self._val_loss_sum / self._val_loss_count)
+            add("val_wer", ("val_wer", "wer"))
+            if "val_wer" not in seen:
+                wer_num = _find_metric(metrics, ("val_wer_num", "wer_num"))
+                wer_denom = _find_metric(metrics, ("val_wer_denom", "wer_denom"))
+                if wer_num is not None and wer_denom:
+                    add_value("val_wer", wer_num / wer_denom)
+            if "val_wer" not in seen and self._val_wer_denom:
+                add_value("val_wer", self._val_wer_num / self._val_wer_denom)
+            if "val_wer" not in seen and self._val_wer_count:
+                add_value("val_wer", self._val_wer_sum / self._val_wer_count)
             lr = _optimizer_lr(trainer)
             if lr is not None:
                 parts.append(f"lr={lr:.5g}")
@@ -209,6 +266,14 @@ def make_lightning_metric_callback(every_n_steps: int = 25):
             if lr is not None and not any(part.startswith(("lr=", "learning_rate=")) for part in parts):
                 parts.append(f"lr={lr:.5g}")
             print(f"[train] epoch={trainer.current_epoch} step={step} " + " ".join(parts), flush=True)
+
+        def on_validation_epoch_start(self, trainer, pl_module) -> None:
+            self._reset_val_accumulators()
+
+        def on_validation_batch_end(
+            self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
+        ) -> None:
+            self._collect_val_output(outputs)
 
         def on_validation_epoch_end(self, trainer, pl_module) -> None:
             epoch = int(getattr(trainer, "current_epoch", 0) or 0)
