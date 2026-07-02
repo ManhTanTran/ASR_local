@@ -204,6 +204,19 @@ def configure_rnnt_memory(model, args) -> None:
     )
 
 
+def quiet_prediction_examples(model) -> None:
+    """Disable sample reference/prediction logs when the NeMo WER object supports it."""
+    wer_obj = getattr(model, "wer", None)
+    if wer_obj is None:
+        return
+    for attr in ("log_prediction", "log_predictions", "_log_prediction", "_log_predictions"):
+        if hasattr(wer_obj, attr):
+            try:
+                setattr(wer_obj, attr, False)
+            except Exception:
+                pass
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-id", default="vivos-ft")
@@ -222,8 +235,8 @@ def main() -> None:
     ap.add_argument("--no-save", action="store_true", help="bỏ qua save .nemo (cho run verify nhanh)")
     ap.add_argument("--precision", default="32",
                     help="32 (ổn định, tránh RNNT collapse-to-blank do fp16) | 16-mixed | bf16-mixed")
-    ap.add_argument("--console-log-steps", type=int, default=int(os.environ.get("ASR_CONSOLE_LOG_STEPS", "25")),
-                    help="print compact train metrics every N steps; 0 disables")
+    ap.add_argument("--console-log-steps", type=int, default=int(os.environ.get("ASR_CONSOLE_LOG_STEPS", "0")),
+                    help="print compact train metrics every N steps; 0 prints epoch summaries only")
     ap.add_argument("--checkpoint-steps", type=int, default=int(os.environ.get("ASR_CHECKPOINT_STEPS", "500")),
                     help="save a resumable .ckpt every N train steps; 0 disables step checkpoints")
     ap.add_argument("--checkpoint-keep", type=int, default=int(os.environ.get("ASR_CHECKPOINT_KEEP", "2")),
@@ -280,6 +293,7 @@ def main() -> None:
 
     model = nemo_asr.models.ASRModel.from_pretrained(
         args.pretrained, map_location="cuda" if cuda else "cpu")
+    quiet_prediction_examples(model)
     model_type = type(model).__name__
     print(f"model_type={model_type}", flush=True)
     wer_before, rtf_before = eval_wer(model, data["test"], args.limit_test, args.batch)
@@ -292,14 +306,13 @@ def main() -> None:
     print(f"n_train={n_train} steps/epoch={steps_per_epoch} total_steps={total_steps}", flush=True)
 
     model.change_vocabulary(new_tokenizer_dir=str(tok_dir), new_tokenizer_type="bpe")
+    quiet_prediction_examples(model)
     configure_rnnt_memory(model, args)
     configure_finetune(model, data, args, total_steps)
 
     # CSVLogger ghi metrics.csv (train_loss/val_loss/val_wer) vào run-dir -> pull về vẽ curve.
     logger = pl.loggers.CSVLogger(save_dir=str(run_dir), name="logs", flush_logs_every_n_steps=25)
-    callbacks = []
-    if args.console_log_steps > 0:
-        callbacks.append(make_lightning_metric_callback(args.console_log_steps))
+    callbacks = [make_lightning_metric_callback(args.console_log_steps)]
     if args.checkpoint_steps > 0 or not args.no_checkpoint_epoch:
         callbacks.append(make_periodic_checkpoint_callback(
             run_dir,
@@ -314,7 +327,8 @@ def main() -> None:
         accelerator="gpu" if cuda else "cpu", devices=1,
         precision=(args.precision if cuda else 32),
         enable_checkpointing=False, logger=logger,
-        enable_progress_bar=True, log_every_n_steps=25,
+        enable_progress_bar=False, log_every_n_steps=25,
+        num_sanity_val_steps=0,
         val_check_interval=1.0,
         callbacks=callbacks,
     )

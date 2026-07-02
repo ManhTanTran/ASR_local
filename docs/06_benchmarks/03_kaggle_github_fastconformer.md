@@ -32,7 +32,7 @@ Package train `asr_lab` đã được đưa vào `ASR_local/src/asr_lab` để K
    - verify GPU + NeMo;
    - chạy FastConformer CTC để tránh lỗi CUDA kernel của RNNT `warprnnt_numba` trên Kaggle;
    - chạy `python -u -m asr_lab.train.finetune_vivos`;
-   - ghi log các command chính vào `run.log`;
+   - ghi log đầy đủ các command chính vào `run.log`, còn output notebook chỉ lọc dòng quan trọng;
    - ghi checkpoint định kỳ vào `checkpoints/*.ckpt`;
    - đọc `results.json`;
    - liệt kê artifact.
@@ -57,21 +57,22 @@ Notebook import `run_logged(...)` từ file này sau khi clone repo. Từ đó, 
 /kaggle/working/runs/vivos-fc-ctc-v2norm/run.log
 ```
 
-Riêng các script train Lightning có thể gắn thêm metric callback dùng chung bằng tham số:
+Riêng các script train Lightning có metric callback dùng chung. Mặc định notebook dùng:
 
 ```text
---console-log-steps 25
+--console-log-steps 0
 ```
 
-Trong output Kaggle bạn sẽ thấy log command và có thể có các dòng metric dạng:
+Nghĩa là không spam từng step; sau mỗi epoch chỉ hiện một dòng gọn dạng:
 
 ```text
 $ python -u -m asr_lab.train.finetune_vivos ...
-[train] epoch=0 step=25 train_loss=...
-[val] epoch=0 step=... val_loss=...
+[epoch] epoch=0 step=695 train_loss=... val_loss=... val_wer=...
 ```
 
 Nếu output của Kaggle không tự cuộn xuống dòng mới, chạy cell `Xem log run mới nhất` trong notebook để xem đoạn cuối `run.log`.
+
+Nếu command lỗi, notebook chỉ hiện `Command failed with exit code ... Full log: ...`; không bung traceback `CalledProcessError` dài. Full traceback vẫn nằm trong `run.log` để debug khi cần.
 
 Với notebook/script khác, chỉ cần import và gọi:
 
@@ -127,7 +128,7 @@ vocab_size: 1024
 lr: 2e-4
 precision: 32
 max_minutes: 660
-console_log_steps: 25
+console_log_steps: 0
 checkpoint_steps: 500
 checkpoint_keep: 2
 fused_batch_size: 0

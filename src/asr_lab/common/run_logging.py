@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import subprocess
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -23,8 +25,15 @@ def run_logged(
     env: Mapping[str, str] | None = None,
     log_path: str | Path | None = None,
     check: bool = True,
+    console_patterns: Sequence[str] | None = None,
+    error_tail_lines: int = 0,
+    system_exit_on_fail: bool = False,
 ) -> subprocess.CompletedProcess:
-    """Run a command, stream output to the notebook, and optionally append it to a log file."""
+    """Run a command and append full output to a log file.
+
+    ``console_patterns`` keeps Kaggle notebook output small: every line still goes
+    to ``log_path``, but only matching lines are printed to the visible notebook.
+    """
     cmd = [str(part) for part in cmd]
     if log_path is None:
         print("$", command_text(cmd), flush=True)
@@ -34,6 +43,8 @@ def run_logged(
     log_path.parent.mkdir(parents=True, exist_ok=True)
     header = f"\n\n=== {datetime.now(timezone.utc).isoformat()} ===\n$ {command_text(cmd)}\n"
     print(header.strip(), flush=True)
+    console_re = re.compile("|".join(f"(?:{pattern})" for pattern in console_patterns)) if console_patterns else None
+    tail = deque(maxlen=max(0, int(error_tail_lines)))
 
     with log_path.open("a", encoding="utf-8", buffering=1) as log:
         log.write(header)
@@ -50,14 +61,23 @@ def run_logged(
         )
         assert proc.stdout is not None
         for line in proc.stdout:
-            print(line, end="", flush=True)
             log.write(line)
+            if tail.maxlen:
+                tail.append(line)
+            if console_re is None or console_re.search(line):
+                print(line, end="", flush=True)
         returncode = proc.wait()
         footer = f"\n=== exit code {returncode} | log: {log_path} ===\n"
         log.write(footer)
 
     print(footer, flush=True)
     if check and returncode != 0:
+        if tail:
+            print(f"Last {len(tail)} log lines:", flush=True)
+            print("".join(tail), end="", flush=True)
+        message = f"Command failed with exit code {returncode}. Full log: {log_path}"
+        if system_exit_on_fail:
+            raise SystemExit(message)
         raise subprocess.CalledProcessError(returncode, cmd)
     return subprocess.CompletedProcess(cmd, returncode)
 
@@ -123,7 +143,10 @@ def _optimizer_lr(trainer) -> float | None:
 
 
 def make_lightning_metric_callback(every_n_steps: int = 25):
-    """Return a Lightning callback that prints compact train/val metric lines."""
+    """Return a Lightning callback that prints compact train/val metric lines.
+
+    ``every_n_steps=0`` disables per-step logs but still prints one epoch summary.
+    """
     import lightning.pytorch as pl
 
     class ConsoleMetricCallback(pl.Callback):
@@ -131,6 +154,7 @@ def make_lightning_metric_callback(every_n_steps: int = 25):
             self.every_n_steps = max(0, int(steps))
             self._last_train_step = -1
             self._last_val_epoch = -1
+            self._last_train_parts: list[str] = []
 
         def _selected_metrics(self, trainer, prefixes: tuple[str, ...]) -> list[str]:
             metrics = getattr(trainer, "callback_metrics", {}) or {}
@@ -143,14 +167,44 @@ def make_lightning_metric_callback(every_n_steps: int = 25):
                         parts.append(part)
             return parts[:8]
 
+        def _epoch_parts(self, trainer) -> list[str]:
+            metrics = getattr(trainer, "callback_metrics", {}) or {}
+            parts: list[str] = []
+            seen: set[str] = set()
+
+            def add(label: str, candidates: tuple[str, ...]) -> None:
+                for candidate in candidates:
+                    if candidate in metrics:
+                        value = _metric_value(metrics[candidate])
+                        if value is not None and label not in seen:
+                            parts.append(f"{label}={value:.5g}")
+                            seen.add(label)
+                            return
+
+            add("train_loss", ("train_loss", "loss"))
+            if "train_loss" not in seen:
+                for part in self._last_train_parts:
+                    if "loss=" in part:
+                        parts.append(part if part.startswith("train_") else f"train_{part}")
+                        seen.add("train_loss")
+                        break
+            add("val_loss", ("val_loss", "validation_loss"))
+            add("val_wer", ("val_wer", "wer", "val_wer_num"))
+            lr = _optimizer_lr(trainer)
+            if lr is not None:
+                parts.append(f"lr={lr:.5g}")
+            return parts
+
         def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx) -> None:
+            parts = self._selected_metrics(trainer, ("train",))
+            if parts:
+                self._last_train_parts = parts
             if self.every_n_steps <= 0:
                 return
             step = int(getattr(trainer, "global_step", 0) or 0)
             if step <= 0 or step == self._last_train_step or step % self.every_n_steps != 0:
                 return
             self._last_train_step = step
-            parts = self._selected_metrics(trainer, ("train",))
             lr = _optimizer_lr(trainer)
             if lr is not None and not any(part.startswith(("lr=", "learning_rate=")) for part in parts):
                 parts.append(f"lr={lr:.5g}")
@@ -161,8 +215,8 @@ def make_lightning_metric_callback(every_n_steps: int = 25):
             if epoch == self._last_val_epoch:
                 return
             self._last_val_epoch = epoch
-            parts = self._selected_metrics(trainer, ("val",))
+            parts = self._epoch_parts(trainer)
             if parts:
-                print(f"[val] epoch={epoch} step={trainer.global_step} " + " ".join(parts), flush=True)
+                print(f"[epoch] epoch={epoch} step={trainer.global_step} " + " ".join(parts), flush=True)
 
     return ConsoleMetricCallback(every_n_steps)
