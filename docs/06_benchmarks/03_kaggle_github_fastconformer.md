@@ -31,6 +31,7 @@ Package train `asr_lab` đã được đưa vào `ASR_local/src/asr_lab` để K
    - verify GPU + NeMo;
    - chạy `python -u -m asr_lab.train.finetune_vivos`;
    - ghi log các command chính vào `run.log`;
+   - ghi checkpoint định kỳ vào `checkpoints/*.ckpt`;
    - đọc `results.json`;
    - liệt kê artifact.
 6. Khi train xong, bấm `Save Version` hoặc `Commit` trên Kaggle để lưu output.
@@ -78,6 +79,41 @@ from asr_lab.common.run_logging import run_logged
 run_logged(cmd, cwd=repo_dir, env=env, log_path=run_dir / "run.log")
 ```
 
+## Checkpoint và resume khi hết GPU
+
+Bản GitHub main hiện có helper dùng chung ở:
+
+```text
+src/asr_lab/common/checkpointing.py
+```
+
+Notebook/script sẽ lưu checkpoint Lightning trong lúc train:
+
+```text
+/kaggle/working/runs/vivos-fc115m-v2norm/checkpoints/*.ckpt
+/kaggle/working/runs/vivos-fc115m-v2norm/checkpoints/checkpoint_manifest.json
+```
+
+Mặc định notebook dùng:
+
+```text
+checkpoint_steps: 500
+checkpoint_keep: 2
+auto_resume: true
+```
+
+Nếu Kaggle hết GPU trước khi sinh `.nemo`, bấm `Save Version` để giữ output. Lần chạy sau, add output version cũ làm input cho notebook. Script sẽ tự tìm checkpoint mới nhất của cùng `run_id` trong:
+
+```text
+/kaggle/input/**/runs/vivos-fc115m-v2norm/checkpoints/*.ckpt
+```
+
+Nếu muốn ép resume từ một file cụ thể, đặt `RESUME_FROM_CHECKPOINT` trong notebook hoặc truyền:
+
+```text
+--resume-from-checkpoint "/kaggle/input/.../*.ckpt"
+```
+
 ## Config bản main
 
 ```text
@@ -88,8 +124,10 @@ batch: 16
 vocab_size: 1024
 lr: 2e-4
 precision: 32
-max_minutes: 480
+max_minutes: 360
 console_log_steps: 25
+checkpoint_steps: 500
+checkpoint_keep: 2
 ```
 
 ## File kết quả cần kiểm tra
@@ -98,6 +136,8 @@ console_log_steps: 25
 run.log
 results.json
 status.json
+checkpoints/checkpoint_manifest.json
+checkpoints/*.ckpt
 metrics.csv
 nemotron_vivos_ft.nemo
 ```

@@ -33,6 +33,11 @@ from omegaconf import open_dict  # noqa: E402
 
 from asr_lab.data.vivos import dump_split  # noqa: E402  (data-prep dùng chung)
 from asr_lab.common.metrics import normalize_vi, extract_text, wer  # noqa: E402
+from asr_lab.common.checkpointing import (  # noqa: E402
+    find_latest_checkpoint,
+    make_periodic_checkpoint_callback,
+    write_checkpoint_manifest,
+)
 from asr_lab.common.run_logging import make_lightning_metric_callback, write_run_status  # noqa: E402
 
 PRETRAINED = "nvidia/nemotron-speech-streaming-en-0.6b"  # default; đổi bằng --pretrained
@@ -176,6 +181,17 @@ def main() -> None:
                     help="32 (ổn định, tránh RNNT collapse-to-blank do fp16) | 16-mixed | bf16-mixed")
     ap.add_argument("--console-log-steps", type=int, default=int(os.environ.get("ASR_CONSOLE_LOG_STEPS", "25")),
                     help="print compact train metrics every N steps; 0 disables")
+    ap.add_argument("--checkpoint-steps", type=int, default=int(os.environ.get("ASR_CHECKPOINT_STEPS", "500")),
+                    help="save a resumable .ckpt every N train steps; 0 disables step checkpoints")
+    ap.add_argument("--checkpoint-keep", type=int, default=int(os.environ.get("ASR_CHECKPOINT_KEEP", "2")),
+                    help="keep only the newest N .ckpt files in the run output")
+    ap.add_argument("--resume-from-checkpoint", default=os.environ.get("ASR_RESUME_FROM_CHECKPOINT", ""),
+                    help="explicit .ckpt path or glob to resume from")
+    ap.add_argument("--no-auto-resume", dest="auto_resume", action="store_false",
+                    help="do not search run_dir or Kaggle input outputs for an existing .ckpt")
+    ap.add_argument("--no-checkpoint-epoch", action="store_true",
+                    help="do not save an extra checkpoint at each epoch end")
+    ap.set_defaults(auto_resume=True)
     args = ap.parse_args()
 
     cuda = torch.cuda.is_available()
@@ -183,10 +199,30 @@ def main() -> None:
         torch.set_num_threads(4)  # an toàn CPU khi smoke local
     run_dir = artifacts_root() / "runs" / args.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    write_run_status(run_dir, args.run_id, "running", console_log_steps=args.console_log_steps)
+    resume_ckpt = find_latest_checkpoint(
+        run_dir,
+        run_id=args.run_id,
+        explicit=(args.resume_from_checkpoint or None),
+        search_inputs=args.auto_resume,
+    )
+    write_checkpoint_manifest(run_dir, latest=resume_ckpt)
+    write_run_status(
+        run_dir,
+        args.run_id,
+        "running",
+        console_log_steps=args.console_log_steps,
+        checkpoint_steps=args.checkpoint_steps,
+        checkpoint_keep=args.checkpoint_keep,
+        resume_checkpoint=(str(resume_ckpt) if resume_ckpt else None),
+        auto_resume=args.auto_resume,
+    )
     # Data để NGOÀI run-dir: 11k wav không được lẫn vào artifact pull. Kaggle: ASR_DATA_DIR=/tmp/...
     data_dir = Path(os.environ.get("ASR_DATA_DIR", str(run_dir / "data")))
     print(f"== fine-tune {args.pretrained} | cuda={cuda} | run_dir={run_dir} | data_dir={data_dir} ==", flush=True)
+    if resume_ckpt:
+        print(f"== resume checkpoint: {resume_ckpt} ==", flush=True)
+    else:
+        print("== resume checkpoint: none ==", flush=True)
 
     data = prepare_data(data_dir, args.train_n, args.val_n, args.limit_test)
     tok_dir = build_vi_tokenizer(data["train"], run_dir / "tokenizer_vi", args.vocab_size)
@@ -208,6 +244,16 @@ def main() -> None:
 
     # CSVLogger ghi metrics.csv (train_loss/val_loss/val_wer) vào run-dir -> pull về vẽ curve.
     logger = pl.loggers.CSVLogger(save_dir=str(run_dir), name="logs", flush_logs_every_n_steps=25)
+    callbacks = []
+    if args.console_log_steps > 0:
+        callbacks.append(make_lightning_metric_callback(args.console_log_steps))
+    if args.checkpoint_steps > 0 or not args.no_checkpoint_epoch:
+        callbacks.append(make_periodic_checkpoint_callback(
+            run_dir,
+            every_n_steps=args.checkpoint_steps,
+            keep_last=args.checkpoint_keep,
+            save_on_epoch_end=(not args.no_checkpoint_epoch),
+        ))
     trainer = pl.Trainer(
         max_epochs=args.epochs if args.max_steps <= 0 else -1,
         max_steps=args.max_steps if args.max_steps > 0 else -1,
@@ -217,11 +263,11 @@ def main() -> None:
         enable_checkpointing=False, logger=logger,
         enable_progress_bar=True, log_every_n_steps=25,
         val_check_interval=1.0,
-        callbacks=([make_lightning_metric_callback(args.console_log_steps)] if args.console_log_steps > 0 else []),
+        callbacks=callbacks,
     )
     model.set_trainer(trainer)
     t0 = time.perf_counter()
-    trainer.fit(model)
+    trainer.fit(model, ckpt_path=(str(resume_ckpt) if resume_ckpt else None))
     train_sec = time.perf_counter() - t0
     print(f"train xong {train_sec/60:.1f} phút", flush=True)
 
@@ -232,6 +278,8 @@ def main() -> None:
     if not args.no_save:
         model.save_to(str(nemo_path))
 
+    latest_ckpt = find_latest_checkpoint(run_dir, run_id=args.run_id, search_inputs=False)
+    write_checkpoint_manifest(run_dir, latest=latest_ckpt)
     results = {
         "pretrained": args.pretrained, "run_id": args.run_id,
         "wer_before": round(wer_before, 4), "wer_after": round(wer_after, 4),
@@ -241,10 +289,15 @@ def main() -> None:
         "max_minutes": args.max_minutes, "completed_epochs": trainer.current_epoch,
         "global_step": trainer.global_step, "train_sec": round(train_sec, 1), "cuda": cuda,
         "nemo_file": (nemo_path.name if not args.no_save else None),
+        "resume_checkpoint": (str(resume_ckpt) if resume_ckpt else None),
+        "latest_checkpoint": (str(latest_ckpt) if latest_ckpt else None),
+        "checkpoint_steps": args.checkpoint_steps,
+        "checkpoint_keep": args.checkpoint_keep,
     }
     (run_dir / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2))
     write_run_status(run_dir, args.run_id, "ok",
-                     wer_before=results["wer_before"], wer_after=results["wer_after"])
+                     wer_before=results["wer_before"], wer_after=results["wer_after"],
+                     latest_checkpoint=results["latest_checkpoint"])
     print("RESULTS:", json.dumps(results, ensure_ascii=False), flush=True)
     del model
     gc.collect()
