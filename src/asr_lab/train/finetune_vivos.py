@@ -237,7 +237,7 @@ def main() -> None:
                     help="32 (ổn định, tránh RNNT collapse-to-blank do fp16) | 16-mixed | bf16-mixed")
     ap.add_argument("--console-log-steps", type=int, default=int(os.environ.get("ASR_CONSOLE_LOG_STEPS", "0")),
                     help="print compact train metrics every N steps; 0 prints epoch summaries only")
-    ap.add_argument("--checkpoint-steps", type=int, default=int(os.environ.get("ASR_CHECKPOINT_STEPS", "500")),
+    ap.add_argument("--checkpoint-steps", type=int, default=int(os.environ.get("ASR_CHECKPOINT_STEPS", "0")),
                     help="save a resumable .ckpt every N train steps; 0 disables step checkpoints")
     ap.add_argument("--checkpoint-keep", type=int, default=int(os.environ.get("ASR_CHECKPOINT_KEEP", "2")),
                     help="keep only the newest N .ckpt files in the run output")

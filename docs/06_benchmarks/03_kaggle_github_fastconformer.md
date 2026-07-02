@@ -100,7 +100,7 @@ Notebook/script sẽ lưu checkpoint Lightning trong lúc train:
 Mặc định notebook dùng:
 
 ```text
-checkpoint_steps: 500
+checkpoint_steps: 0
 checkpoint_keep: 2
 auto_resume: true
 ```
@@ -129,7 +129,7 @@ lr: 2e-4
 precision: 32
 max_minutes: 660
 console_log_steps: 0
-checkpoint_steps: 500
+checkpoint_steps: 0
 checkpoint_keep: 2
 fused_batch_size: 0
 ```
