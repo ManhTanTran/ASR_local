@@ -28,7 +28,9 @@ Package train `asr_lab` đã được đưa vào `ASR_local/src/asr_lab` để K
 5. Chạy từng cell từ trên xuống:
    - clone repo từ GitHub;
    - cài `torch==2.7.1` CUDA 11.8 và `nemo_toolkit[asr]==2.7.3`;
+   - pin lại `numpy==1.26.4`, `numba==0.60.0`, `llvmlite==0.43.0` và bỏ `numba-cuda` để tránh lỗi import RNNT trên image Kaggle mới;
    - verify GPU + NeMo;
+   - bật RNNT `fuse_loss_wer` với `fused_batch_size=4` để giảm rủi ro crash/OOM ở `warprnnt_numba`;
    - chạy `python -u -m asr_lab.train.finetune_vivos`;
    - ghi log các command chính vào `run.log`;
    - ghi checkpoint định kỳ vào `checkpoints/*.ckpt`;
@@ -124,10 +126,18 @@ batch: 16
 vocab_size: 1024
 lr: 2e-4
 precision: 32
-max_minutes: 360
+max_minutes: 660
 console_log_steps: 25
 checkpoint_steps: 500
 checkpoint_keep: 2
+fused_batch_size: 4
+```
+
+Ghi chú runtime: nếu Kaggle image kéo `numpy 2.x + numba-cuda`, NeMo ASR có thể lỗi khi import RNNT loss. Notebook main đã có bước fix dependency trước khi verify:
+
+```text
+pip uninstall -y numba-cuda
+pip install --force-reinstall numpy==1.26.4 numba==0.60.0 llvmlite==0.43.0
 ```
 
 ## File kết quả cần kiểm tra

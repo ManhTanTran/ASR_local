@@ -161,6 +161,38 @@ def configure_finetune(model, data: dict, args, total_steps: int) -> None:
         print(f"đã freeze encoder — chỉ train decoder+joint | warmup={warmup} max_steps={total_steps}")
 
 
+def configure_rnnt_memory(model, args) -> None:
+    """Shrink the RNNT joint/loss sub-batch to avoid CUDA-level crashes on Kaggle GPUs."""
+    if args.fused_batch_size <= 0 and not args.preserve_memory:
+        return
+
+    with open_dict(model.cfg.joint):
+        if args.fused_batch_size > 0:
+            model.cfg.joint.fuse_loss_wer = True
+            model.cfg.joint.fused_batch_size = args.fused_batch_size
+        if args.preserve_memory:
+            model.cfg.joint.preserve_memory = True
+
+    if args.fused_batch_size > 0:
+        model.joint.fuse_loss_wer = True
+        model.joint.fused_batch_size = args.fused_batch_size
+    if args.preserve_memory and hasattr(model.joint, "preserve_memory"):
+        model.joint.preserve_memory = True
+
+    if getattr(model.joint, "fuse_loss_wer", False):
+        if hasattr(model.joint, "set_loss"):
+            model.joint.set_loss(model.loss)
+        if hasattr(model.joint, "set_wer"):
+            model.joint.set_wer(model.wer)
+    print(
+        "RNNT memory mode: "
+        f"fuse_loss_wer={getattr(model.joint, 'fuse_loss_wer', None)} "
+        f"fused_batch_size={getattr(model.joint, 'fused_batch_size', None)} "
+        f"preserve_memory={getattr(model.joint, 'preserve_memory', None)}",
+        flush=True,
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-id", default="vivos-ft")
@@ -185,6 +217,11 @@ def main() -> None:
                     help="save a resumable .ckpt every N train steps; 0 disables step checkpoints")
     ap.add_argument("--checkpoint-keep", type=int, default=int(os.environ.get("ASR_CHECKPOINT_KEEP", "2")),
                     help="keep only the newest N .ckpt files in the run output")
+    ap.add_argument("--fused-batch-size", type=int, default=int(os.environ.get("ASR_FUSED_BATCH_SIZE", "4")),
+                    help="RNNT prediction/joint/loss sub-batch size; 0 keeps the pretrained default")
+    ap.add_argument("--preserve-memory", action="store_true",
+                    default=os.environ.get("ASR_PRESERVE_MEMORY", "0").lower() in {"1", "true", "yes"},
+                    help="enable NeMo joint.preserve_memory; slower, but useful for tight Kaggle GPUs")
     ap.add_argument("--resume-from-checkpoint", default=os.environ.get("ASR_RESUME_FROM_CHECKPOINT", ""),
                     help="explicit .ckpt path or glob to resume from")
     ap.add_argument("--no-auto-resume", dest="auto_resume", action="store_false",
@@ -213,6 +250,8 @@ def main() -> None:
         console_log_steps=args.console_log_steps,
         checkpoint_steps=args.checkpoint_steps,
         checkpoint_keep=args.checkpoint_keep,
+        fused_batch_size=args.fused_batch_size,
+        preserve_memory=args.preserve_memory,
         resume_checkpoint=(str(resume_ckpt) if resume_ckpt else None),
         auto_resume=args.auto_resume,
     )
@@ -240,6 +279,7 @@ def main() -> None:
     print(f"n_train={n_train} steps/epoch={steps_per_epoch} total_steps={total_steps}", flush=True)
 
     model.change_vocabulary(new_tokenizer_dir=str(tok_dir), new_tokenizer_type="bpe")
+    configure_rnnt_memory(model, args)
     configure_finetune(model, data, args, total_steps)
 
     # CSVLogger ghi metrics.csv (train_loss/val_loss/val_wer) vào run-dir -> pull về vẽ curve.
@@ -293,6 +333,8 @@ def main() -> None:
         "latest_checkpoint": (str(latest_ckpt) if latest_ckpt else None),
         "checkpoint_steps": args.checkpoint_steps,
         "checkpoint_keep": args.checkpoint_keep,
+        "fused_batch_size": args.fused_batch_size,
+        "preserve_memory": args.preserve_memory,
     }
     (run_dir / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2))
     write_run_status(run_dir, args.run_id, "ok",
