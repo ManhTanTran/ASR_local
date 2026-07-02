@@ -1,11 +1,11 @@
-"""Fine-tune nemotron-speech-streaming-en-0.6b sang tiếng Việt bằng VIVOS — chạy trên Kaggle GPU.
+"""Fine-tune FastConformer sang tiếng Việt bằng VIVOS — chạy trên Kaggle GPU.
 
 Vì model nền là English-only (không có token tiếng Việt), fine-tune ĐÚNG cách = đổi bộ từ vựng:
   1. Tải VIVOS train/val/test (HF mirror parquet) -> manifest NeMo.
   2. Train BPE tokenizer tiếng Việt từ transcript train (SentencePiece, char_coverage=1.0 để phủ hết
      ký tự có dấu) -> thư mục tokenizer.
   3. Nạp model pretrained, đo WER test TRƯỚC (đầu English, kỳ vọng ~100%).
-  4. change_vocabulary() -> dựng lại decoder + joint theo vocab tiếng Việt (encoder giữ nguyên).
+  4. change_vocabulary() -> dựng lại decoder/head theo vocab tiếng Việt (encoder giữ nguyên).
   5. Train vài epoch, đo WER test SAU.
   6. Lưu .nemo + results.json (wer_before/after) + status.json vào artifacts/runs/<run_id>/.
 
@@ -40,7 +40,7 @@ from asr_lab.common.checkpointing import (  # noqa: E402
 )
 from asr_lab.common.run_logging import make_lightning_metric_callback, write_run_status  # noqa: E402
 
-PRETRAINED = "nvidia/nemotron-speech-streaming-en-0.6b"  # default; đổi bằng --pretrained
+PRETRAINED = "nvidia/stt_en_fastconformer_ctc_large"  # default; đổi bằng --pretrained
 
 
 def artifacts_root() -> Path:
@@ -163,6 +163,11 @@ def configure_finetune(model, data: dict, args, total_steps: int) -> None:
 
 def configure_rnnt_memory(model, args) -> None:
     """Shrink the RNNT joint/loss sub-batch to avoid CUDA-level crashes on Kaggle GPUs."""
+    if not hasattr(model, "joint"):
+        if args.fused_batch_size > 0 or args.preserve_memory:
+            print("RNNT memory mode skipped: model has no RNNT joint/head", flush=True)
+        return
+
     if args.fused_batch_size <= 0 and not args.preserve_memory:
         return
 
@@ -223,7 +228,7 @@ def main() -> None:
                     help="save a resumable .ckpt every N train steps; 0 disables step checkpoints")
     ap.add_argument("--checkpoint-keep", type=int, default=int(os.environ.get("ASR_CHECKPOINT_KEEP", "2")),
                     help="keep only the newest N .ckpt files in the run output")
-    ap.add_argument("--fused-batch-size", type=int, default=int(os.environ.get("ASR_FUSED_BATCH_SIZE", "4")),
+    ap.add_argument("--fused-batch-size", type=int, default=int(os.environ.get("ASR_FUSED_BATCH_SIZE", "0")),
                     help="RNNT prediction/joint/loss sub-batch size; 0 keeps the pretrained default")
     ap.add_argument("--preserve-memory", action="store_true",
                     default=os.environ.get("ASR_PRESERVE_MEMORY", "0").lower() in {"1", "true", "yes"},
@@ -275,6 +280,8 @@ def main() -> None:
 
     model = nemo_asr.models.ASRModel.from_pretrained(
         args.pretrained, map_location="cuda" if cuda else "cpu")
+    model_type = type(model).__name__
+    print(f"model_type={model_type}", flush=True)
     wer_before, rtf_before = eval_wer(model, data["test"], args.limit_test, args.batch)
     print(f"WER TRƯỚC (đầu English): {wer_before*100:.2f}%", flush=True)
 
@@ -320,14 +327,14 @@ def main() -> None:
     wer_after, rtf_after = eval_wer(model, data["test"], args.limit_test, args.batch)
     print(f"WER SAU (đầu tiếng Việt): {wer_after*100:.2f}%", flush=True)
 
-    nemo_path = run_dir / "nemotron_vivos_ft.nemo"
+    nemo_path = run_dir / "fastconformer_vivos_ft.nemo"
     if not args.no_save:
         model.save_to(str(nemo_path))
 
     latest_ckpt = find_latest_checkpoint(run_dir, run_id=args.run_id, search_inputs=False)
     write_checkpoint_manifest(run_dir, latest=latest_ckpt)
     results = {
-        "pretrained": args.pretrained, "run_id": args.run_id,
+        "pretrained": args.pretrained, "model_type": model_type, "run_id": args.run_id,
         "wer_before": round(wer_before, 4), "wer_after": round(wer_after, 4),
         "rtf_before": round(rtf_before, 4), "rtf_after": round(rtf_after, 4),
         "epochs": args.epochs, "max_steps": args.max_steps, "batch": args.batch,
