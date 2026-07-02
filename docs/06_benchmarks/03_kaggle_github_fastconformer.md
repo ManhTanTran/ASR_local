@@ -33,7 +33,7 @@ Package train `asr_lab` đã được đưa vào `ASR_local/src/asr_lab` để K
    - chạy FastConformer CTC để tránh lỗi CUDA kernel của RNNT `warprnnt_numba` trên Kaggle;
    - chạy `python -u -m asr_lab.train.finetune_vivos`;
    - ghi log đầy đủ các command chính vào `run.log`, còn output notebook chỉ lọc dòng quan trọng;
-   - ghi checkpoint định kỳ vào `checkpoints/*.ckpt`;
+   - ghi checkpoint cuối mỗi epoch vào `checkpoints/*.ckpt`;
    - đọc `results.json`;
    - liệt kê artifact.
 6. Khi train xong, bấm `Save Version` hoặc `Commit` trên Kaggle để lưu output.
