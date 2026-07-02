@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from asr_local.common.metrics import extract_text, normalize_vi, utterance_error_rows
-from asr_local.data.vivos import VivosManifests, read_manifest
-from asr_local.model.parakeet import ParakeetConfig
+from asr_lab.common.metrics import extract_text, normalize_vi, utterance_error_rows
+from asr_lab.data.vivos import VivosManifests, read_manifest
+from asr_lab.model.parakeet import ParakeetConfig
 
 
 def baseline_eval(model_path: Path, manifests: VivosManifests, config: ParakeetConfig, device: str) -> dict:
@@ -185,4 +185,3 @@ def list_artifacts(run_dir: Path) -> pd.DataFrame:
                 }
             )
     return pd.DataFrame(rows)
-

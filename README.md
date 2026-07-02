@@ -7,7 +7,7 @@ Workspace cá nhân cho notebook, ghi chú và code hỗ trợ fine-tune ASR.
 - `_works/`: ghi chú công việc cá nhân.
 - `docs/`: tài liệu tham chiếu ASR.
 - `notebooks/final/`: hai notebook cuối cho Parakeet và FastConformer.
-- `src/asr_local/`: package tách logic khỏi notebook.
+- `src/asr_lab/`: package tách logic khỏi notebook.
 
 ## Kaggle
 

@@ -1,34 +1,32 @@
-"""Hàm đo dùng chung cho mọi script eval/bench/train: chuẩn hoá text, WER, bóc text.
+"""Shared text normalization and WER helpers for ASR scripts."""
 
-Tách riêng để cả data/eval/train tham chiếu một nguồn — tránh import chéo giữa các script
-(trước đây eval_vivos/finetune import từ bench_asr).
-"""
+from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 
 def normalize_en(text: str) -> str:
-    """Chuẩn hoá tiếng Anh: hạ thường + bỏ ký tự không phải [a-z0-9' ] (model PnC có dấu câu/hoa)."""
+    """Normalize English ASR text."""
     text = text.lower()
     text = re.sub(r"[^a-z0-9' ]", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
 def normalize_vi(text: str) -> str:
-    """Chuẩn hoá tiếng Việt: hạ thường + bỏ dấu câu nhưng GIỮ chữ có dấu (\\w unicode).
-
-    Nếu strip về ASCII như tiếng Anh thì mọi dấu (à, ệ, ữ...) biến mất -> WER sai bét.
-    """
+    """Normalize Vietnamese ASR text while preserving accented characters."""
     text = text.lower()
     text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
     return re.sub(r"\s+", " ", text).strip()
 
 
-def wer(refs, hyps) -> float:
-    """WER gộp toàn corpus = tổng (sub+del+ins) / tổng số từ tham chiếu (Levenshtein mức từ)."""
-    total_err, total_words = 0, 0
+def wer(refs: Iterable[str], hyps: Iterable[str]) -> float:
+    """Corpus WER using word-level Levenshtein distance."""
+    total_err = 0
+    total_words = 0
     for ref, hyp in zip(refs, hyps):
-        r, h = ref.split(), hyp.split()
+        r = ref.split()
+        h = hyp.split()
         d = [[0] * (len(h) + 1) for _ in range(len(r) + 1)]
         for i in range(len(r) + 1):
             d[i][0] = i
@@ -37,12 +35,38 @@ def wer(refs, hyps) -> float:
         for i in range(1, len(r) + 1):
             for j in range(1, len(h) + 1):
                 cost = 0 if r[i - 1] == h[j - 1] else 1
-                d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+                d[i][j] = min(
+                    d[i - 1][j] + 1,
+                    d[i][j - 1] + 1,
+                    d[i - 1][j - 1] + cost,
+                )
         total_err += d[len(r)][len(h)]
         total_words += len(r)
     return total_err / max(total_words, 1)
 
 
 def extract_text(item) -> str:
-    """transcribe() trả Hypothesis (có .text) hoặc str tuỳ phiên bản/model."""
-    return item.text if hasattr(item, "text") else str(item)
+    """Return text from NeMo transcribe output variants."""
+    if hasattr(item, "text"):
+        return item.text
+    if isinstance(item, (list, tuple)) and item:
+        return extract_text(item[0])
+    return str(item)
+
+
+def utterance_error_rows(rows: list[dict], hyps: list[str]) -> list[dict]:
+    out = []
+    for idx, (row, hyp) in enumerate(zip(rows, hyps)):
+        ref = normalize_vi(row["text"])
+        hyp_norm = normalize_vi(hyp)
+        out.append(
+            {
+                "idx": idx,
+                "audio_filepath": row["audio_filepath"],
+                "duration": row.get("duration"),
+                "ref": ref,
+                "hyp": hyp_norm,
+                "utt_wer": wer([ref], [hyp_norm]),
+            }
+        )
+    return out

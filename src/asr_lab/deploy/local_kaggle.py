@@ -4,7 +4,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from asr_local.model.fastconformer import CommonVoiceRunConfig, FastConformerRunConfig
+from asr_lab.model.fastconformer import CommonVoiceRunConfig, FastConformerRunConfig
 
 
 def uv_module(module: str, *args: str) -> list[str]:
