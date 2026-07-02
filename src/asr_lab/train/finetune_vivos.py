@@ -174,8 +174,14 @@ def configure_rnnt_memory(model, args) -> None:
             model.cfg.joint.preserve_memory = True
 
     if args.fused_batch_size > 0:
-        model.joint.fuse_loss_wer = True
-        model.joint.fused_batch_size = args.fused_batch_size
+        try:
+            model.joint.fuse_loss_wer = True
+        except AttributeError:
+            model.joint._fuse_loss_wer = True
+        try:
+            model.joint.fused_batch_size = args.fused_batch_size
+        except AttributeError:
+            model.joint._fused_batch_size = args.fused_batch_size
     if args.preserve_memory and hasattr(model.joint, "preserve_memory"):
         model.joint.preserve_memory = True
 
