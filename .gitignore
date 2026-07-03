@@ -16,7 +16,6 @@ env/
 # ASR artifacts and local data
 artifacts/
 /data/
-reports/
 rendered/
 figures/
 publish/

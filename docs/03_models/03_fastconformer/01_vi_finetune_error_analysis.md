@@ -4,6 +4,12 @@ Report soi kỹ output của model `stt_en_fastconformer_transducer_large` (115M
 (WER 20,37%), tìm **lỗi chung lặp lại**, truy **root-cause** (gồm 1 giả thuyết đã bị bác bằng thí
 nghiệm), và đề xuất hướng giảm WER.
 
+> Update `ASR_local` 2026-07-03: run CTC `vivos-fc-ctc-v2norm` đã có report riêng, WER test **14.13%**,
+> CER **7.67%**, lỗi còn lại chủ yếu là substitution. Xem
+> `../../../experiments/01_fastconformer_ctc_v2norm_kaggle/RESULT.md` và
+> `../../../insight/error_analysis/01_fastconformer_ctc_v2norm.md`. Phần dưới vẫn là phân tích lịch sử cho run
+> RNNT 20.37% và root-cause `<unk>`/chữ hoa.
+
 ---
 
 ## Glossary
