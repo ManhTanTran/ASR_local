@@ -1,0 +1,153 @@
+# Manifest dataset ASR tiếng Việt để kéo về DGX (team-share).
+# Dùng bởi pull.py. HF id đã verify từ docs/04_datasets_vi + agent research (2026-07-01).
+#
+# Trường:
+#   name      : tên thư mục đích dưới <dest>/<name>
+#   repo_id   : HF dataset id (snapshot_download repo_type=dataset)
+#   hours     : giờ audio (approx; ⚠ = chưa kiểm chứng chắc)
+#   gb        : dung lượng ước lượng (GB) — để tính chi phí kéo
+#   license   : commercial-ok (CC0/CC-BY/MIT) | research-nc (chỉ nghiên cứu)
+#   stage     : nấc curriculum 1..3 (1=sạch/dễ hội tụ, 3=bulk/khó)
+#   gated     : true => cần chấp nhận điều khoản + HF token, KHÔNG auto kéo
+#   domain    : read (đọc) | spontaneous (tự nhiên) | audiobook | conversational | medical
+#   note      : ghi chú
+#
+# Quy ước license phục vụ FCI: sản phẩm THƯƠNG MẠI chỉ dùng license=commercial-ok.
+# research-nc chỉ để nghiên cứu/tích lũy tài sản nội bộ — segregate khi build model bán.
+
+datasets:
+  # ---------- STAGE 1: sạch, đọc, ngắn — mồi hội tụ ----------
+  - name: vivos
+    repo_id: AILAB-VNUHCM/vivos
+    hours: 15
+    gb: 1.5
+    license: research-nc        # CC BY-NC-SA 4.0
+    stage: 1
+    gated: false
+    domain: read
+    note: "Anchor sạch. Đã dùng làm baseline (exp 00-04)."
+
+  - name: common_voice_vi
+    repo_id: tsdocode/common_voice_13_0_vi_pseudo_labelled
+    hours: 4
+    gb: 1.5
+    license: commercial-ok       # nguồn CV = CC0 (mirror pseudo-label)
+    stage: 1
+    gated: false
+    domain: read
+    note: "Mirror CV13 VI (ungated). Đã dùng exp 04. Ít giờ."
+
+  - name: fleurs_vi
+    repo_id: google/fleurs
+    config: vi_vn
+    allow_patterns: ["*vi_vn*"]   # repo đa-ngôn-ngữ -> CHỈ lấy subset vi_vn
+    hours: 12
+    gb: 2
+    license: commercial-ok       # CC-BY 4.0
+    stage: 1
+    gated: false
+    domain: read
+    note: "Nhỏ, sạch — tốt làm eval set cố định xuyên các stage."
+
+  - name: infore1
+    repo_id: doof-ferb/infore1_25hours
+    hours: 25
+    gb: 3
+    license: research-nc         # cần kiểm chứng, coi như NC
+    stage: 1
+    gated: false
+    domain: read
+    note: "Đọc, đã denoise/align."
+
+  # ---------- STAGE 2: mở rộng speaker + nhiễu nhẹ ----------
+  - name: fosd
+    repo_id: doof-ferb/fpt_fosd
+    hours: 100
+    gb: 1
+    license: commercial-ok       # CC-BY 4.0
+    stage: 2
+    gated: false
+    domain: read
+    note: "FPT Open Speech (mirror). mp3 nhỏ gọn."
+
+  - name: vlsp2020_100h
+    repo_id: doof-ferb/vlsp2020_vinai_100h
+    hours: 100
+    gb: 11
+    license: commercial-ok       # CC-BY 4.0
+    stage: 2
+    gated: false
+    domain: read
+    note: "Mirror VLSP2020 VinBigData — né form đăng ký gốc."
+
+  - name: lsvsc
+    repo_id: doof-ferb/LSVSC
+    hours: 389
+    gb: 12
+    license: commercial-ok       # CC-BY 4.0
+    stage: 2
+    gated: false
+    domain: spontaneous
+    note: "Đa mục đích (ASR/speaker/dialect)."
+
+  # ---------- STAGE 3: bulk + gần domain callbot (khó) ----------
+  - name: vietsuperspeech
+    repo_id: thanhnew2001/VietSuperSpeech
+    hours: 103
+    gb: 12
+    license: commercial-ok       # MIT
+    stage: 3
+    gated: false
+    domain: conversational
+    note: "Hội thoại (podcast/phỏng vấn) — GẦN domain callbot FCI nhất. Auto-label."
+
+  - name: bud500
+    repo_id: linhtran92/viet_bud500
+    hours: 500
+    gb: 98
+    license: research-nc         # CC BY-NC-SA 4.0
+    stage: 3
+    gated: true                  # SUA 2026-07-03: thuc te GATED (403 "not in authorized list"),
+    domain: spontaneous          # can bam "Agree and access" tren trang HF bang tai khoan token
+    note: "Bulk lon nhat, 500h, 3 vung mien, ~98GB. GATED: xin quyen tai huggingface.co/datasets/linhtran92/viet_bud500"
+
+  - name: infore2_audiobooks
+    repo_id: doof-ferb/infore2_audiobooks
+    hours: 415
+    gb: 40
+    license: research-nc
+    stage: 3
+    gated: false
+    domain: audiobook
+    note: "Audiobook dài — robust câu dài. ⚠ giờ chưa chắc."
+
+  # ---------- GATED: cần HF token + chấp nhận điều khoản (KHÔNG auto) ----------
+  - name: phoaudiobook
+    repo_id: thivux/phoaudiobook
+    hours: 941
+    gb: 100
+    license: research-nc         # cấm phân phối lại
+    stage: 3
+    gated: true
+    domain: audiobook
+    note: "Cần đồng ý điều khoản trên HF."
+
+  - name: vivoice
+    repo_id: capleaf/viVoice
+    hours: 1017
+    gb: 110
+    license: research-nc         # CC BY-NC-SA + form contact
+    stage: 3
+    gated: true
+    domain: spontaneous
+    note: "YouTube cleaned, 1017h. Cần điền form contact trên HF."
+
+  - name: vietmed
+    repo_id: leduckhai/VietMed
+    hours: 16
+    gb: 2
+    license: research-nc
+    stage: 3
+    gated: true
+    domain: medical
+    note: "Y tế, chỉ 16h supervised. Domain hẹp — kéo khi cần."

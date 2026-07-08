@@ -43,6 +43,53 @@ Package train `asr_lab` đã được đưa vào `ASR_local/src/asr_lab` để K
 /kaggle/working/runs/vivos-fc-ctc-v2norm/
 ```
 
+## Tự động kéo log/model về máy local
+
+Local có thể chạy watcher dùng Kaggle API để tự pull output kernel về repo:
+
+Tạo config local một lần:
+
+```powershell
+Copy-Item deploy/kaggle/accounts.example.json deploy/kaggle/accounts.json
+New-Item -ItemType Directory -Force ~/.kaggle/trnmnhtn
+```
+
+Sau đó tải `kaggle.json` từ Kaggle account mới và đặt vào:
+
+```text
+~/.kaggle/trnmnhtn/kaggle.json
+```
+
+Chạy watcher:
+
+```powershell
+uv run python -m asr_lab.deploy.kaggle watch `
+  --account lminhhin `
+  --kernel asr-fine-tuning `
+  --run-id vivos-fc-ctc-v2norm `
+  --interval 300 `
+  --tail 80
+```
+
+Khi Kaggle output đã available, watcher sẽ sync về:
+
+```text
+artifacts/runs/vivos-fc-ctc-v2norm/
+```
+
+Các file quan trọng được kéo về gồm:
+
+```text
+run.log
+results.json
+status.json
+checkpoints/checkpoint_manifest.json
+checkpoints/*.ckpt
+fastconformer_vivos_ft.nemo
+```
+
+Lưu ý: với notebook chạy tay trong browser, Kaggle API thường chưa thấy output của draft session. Hãy bấm `Save Version`/`Commit` sau khi chạy hoặc dùng flow `asr_lab.deploy.kaggle push` để kernel chạy như một version có output. Watcher cần máy local đang bật; nếu tắt máy, Kaggle vẫn chạy nhưng watcher sẽ chỉ kéo được sau khi mở máy lại và chạy lệnh trên.
+
 ## Xem log khi chạy run/command
 
 Bản GitHub main hiện có helper dùng chung ở:

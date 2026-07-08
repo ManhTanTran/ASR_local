@@ -1,0 +1,11 @@
+# Config SMOKE CPU — test wiring hệ train/vi end-to-end (KHÔNG GPU, KHÔNG phải kết quả thật).
+# Dùng: paths truyền qua --set. Xem docs/07_dgx_training/08.
+run: {id: smoke-cpu, stage: smoke, backup_dir: null}
+model: {change_vocabulary: false, freeze_encoder: true}   # restore tokenizer sẵn, freeze cho nhanh
+data:
+  manifests_dir: _manifests
+  eval_fixed: {vivos_test: vivos.test.jsonl}
+  train_sets: [{name: vivos, weight: 1}]
+train: {batch_size: 2, accum_grad: 1, num_workers: 0, epochs: 1, precision: "32", max_minutes: 10,
+        spec_augment: null, bucketing: false}
+checkpoint: {every_n_train_steps: 0, ema: null, save_top_k: 1, monitor: val_wer, mode: min}

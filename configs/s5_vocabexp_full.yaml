@@ -1,0 +1,57 @@
+# Vòng 2 task 08 — fine-tune vocab expansion, SỬA 2 lỗi của vòng 1 (s4).
+# Chẩn đoán vòng 1: (1) mix gọn cap nhóm đọc -> trôi giọng, fosd +1,38; (2) freeze+2ep -> token mới
+# học chưa đủ + false positive 3,3%. Vòng 2 sửa cả hai:
+#   - FULL replay (KHÔNG cap fosd/vlsp/lsvsc) -> giữ giọng đọc, chặn thoái lui 9 test,
+#   - MỞ encoder (freeze_encoder=false) + lr NHỎ 5e-5 -> sửa ca "nuốt từ" (∅) + calib token mới,
+#   - 3 epoch -> token mới (khởi tạo bị ép im) có đủ update để leo.
+# Init từ s3-vocabexp.nemo (baseline = S3, vocab 1028). Mix = mix S3 đầy đủ nhưng vietsuperspeech_clean.
+
+run:
+  id: s5-vocabexp-full
+  stage: s5
+  artifacts_dir: /srv/team-share/datasets/asr_vi/_runs
+  backup_dir: /srv/team-share/models/asr_vi
+
+model:
+  init_from: /srv/team-share/models/asr_vi/s3-vocabexp.nemo
+  change_vocabulary: false
+  freeze_encoder: false          # MỞ encoder (khác vòng 1) — sửa ca nuốt từ loanword
+
+data:
+  eval_fixed:
+    vivos_test: vivos.test.jsonl
+    cv_test: common_voice_vi.test.jsonl
+    fleurs_test: fleurs_vi.test.jsonl
+    vlsp_test: vlsp2020_100h.test.jsonl
+    lsvsc_test: lsvsc.test.jsonl
+    fosd_test: fosd.test.jsonl
+    vietsuperspeech_test: vietsuperspeech.test.jsonl
+    vietsuperspeech_inscope: vietsuperspeech.test.inscope.jsonl   # THƯỚC CHÍNH (S3=17,68)
+    bud500_test: bud500.test.jsonl
+    vietmed_test: vietmed.test.jsonl
+  # MIX S3 ĐẦY ĐỦ (full replay) — chỉ thay vietsuperspeech -> vietsuperspeech_clean.
+  train_sets:
+    - {name: vietsuperspeech_clean, weight: 2}          # gold f/j/w/z 27%, domain callbot
+    - {name: vivoice, weight: 1, cap: 150000}           # spontaneous, nguồn f/j/w/z lớn (4,8% × 886k)
+    - {name: bud500, weight: 1, cap: 120000}            # hội thoại 3 miền (giữ bud500_test)
+    - {name: phoaudiobook, weight: 1, cap: 40000}       # audiobook liều nhỏ (generalize)
+    - {name: infore2_audiobooks, weight: 1, cap: 30000}
+    # --- Replay ĐẦY ĐỦ nhóm đọc/formal — KHÔNG cap (khác vòng 1) ---
+    - {name: vivos, weight: 2}
+    - {name: common_voice_vi, weight: 2}
+    - {name: fleurs_vi, weight: 2}
+    - {name: fosd, weight: 1}                           # full 23.668 (vòng 1 cap 4000 -> +1,38, sửa)
+    - {name: vlsp2020_100h, weight: 1}                  # full 52.414
+    - {name: lsvsc, weight: 1}                          # full 50.139
+    - {name: infore1, weight: 1}
+
+optim:
+  lr: 5.0e-5                     # NHỎ hơn S3 (1e-4): gentle, giữ token cũ + giảm over-fire token mới
+
+train:
+  epochs: 3                      # token mới khởi tạo ép im -> cần đủ update để leo
+  max_minutes: 1900              # trần ~31h (chia GPU) -> đủ 3 epoch khi contention nhẹ, vẫn eval+save nếu chạm
+  val_check_interval: 0.5        # ckpt trung gian mỗi 0,5 epoch -> chọn best theo val_wer
+
+checkpoint:
+  every_n_train_steps: 500       # top-3 theo val_wer

@@ -1,0 +1,10 @@
+# Nấc S1 — đọc sạch câu ngắn (VIVOS + CV + FLEURS + InfoRE1). Mồi hội tụ.
+# Chỉ override khác _base.yaml.
+
+run:
+  id: s1-fc115m-clean
+  stage: s1
+
+# model/data/optim/train/checkpoint lấy mặc định _base (đã đúng cho nấc đầu):
+# - change_vocabulary=true, build tokenizer 1024 từ train manifest
+# - train_sets = 4 bộ S1 với trọng số upsample tập sạch nhỏ

@@ -29,6 +29,7 @@ publish/
 *.flac
 
 # Credentials and local secrets
+deploy/kaggle/accounts.json
 kaggle.json
 *.pem
 *.key

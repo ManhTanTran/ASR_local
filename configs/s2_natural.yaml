@@ -1,0 +1,29 @@
+# Nấc S2 — thêm đọc đa nguồn + nói tự nhiên nhẹ (FOSD + VLSP + LSVSC).
+# Continue từ s1-fc115m-full.nemo, GIỮ tokenizer S1 (không đổi vocab).
+# Replay các bộ S1 (trọng số cao hơn cho tập sạch nhỏ) để chống catastrophic forgetting.
+# Chỉ override khác _base.yaml.
+
+run:
+  id: s2-fc115m-full
+  stage: s2
+
+model:
+  init_from: /srv/team-share/models/asr_vi/s1-fc115m-full.nemo  # nối tiếp checkpoint S1
+  change_vocabulary: false     # giữ tokenizer + decoder S1, KHÔNG dựng vocab mới
+
+data:
+  train_sets:                  # replay S1 + 3 bộ mới S2
+    - {name: vivos, weight: 2}            # replay sạch (studio)
+    - {name: common_voice_vi, weight: 2}  # replay sạch nhỏ
+    - {name: fleurs_vi, weight: 2}        # replay sạch nhỏ
+    - {name: infore1, weight: 1}          # replay
+    - {name: fosd, weight: 1}             # MỚI — đọc nguồn FPT
+    - {name: vlsp2020_100h, weight: 1}    # MỚI — đọc tin tức formal (lớn)
+    - {name: lsvsc, weight: 1}            # MỚI — tự nhiên đa vùng miền (lớn)
+
+train:
+  epochs: 8                    # data ~2,8x S1 nên ít epoch hơn; continue từ ckpt đã hội tụ
+  max_minutes: 720             # trần an toàn ~12h, tránh bị kill giữa run
+
+checkpoint:
+  every_n_train_steps: 300     # ~2 ckpt/epoch để quan sát mốc (S2 epoch dài hơn S1)

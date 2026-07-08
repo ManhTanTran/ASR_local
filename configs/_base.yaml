@@ -1,0 +1,61 @@
+# Config nền chung cho hệ train/vi (DGX). File nấc (s1_clean.yaml...) chỉ override phần khác.
+# Merge bằng OmegaConf. Xem docs/07_dgx_training/08_new_system_design.md.
+
+run:
+  id: null                    # BẮT BUỘC override (tên run)
+  stage: null                 # s1 | s2 | s3
+  artifacts_dir: artifacts    # run-dir = <artifacts_dir>/runs/<id>
+  backup_dir: /srv/team-share/models/asr_vi   # copy .nemo bàn giao
+
+model:
+  init_from: nvidia/stt_en_fastconformer_transducer_large  # NGC/HF name HOẶC .nemo nấc trước
+  change_vocabulary: true     # nấc đầu true (dựng vocab VI); resume nấc sau false
+  freeze_encoder: false
+  tokenizer:
+    dir: null                 # null + change_vocabulary=true -> build mới từ train manifest
+    vocab_size: 1024
+    type: bpe
+
+data:
+  root: /srv/team-share/datasets/asr_vi
+  manifests_dir: _manifests   # nơi build_corpus ghi <name>.<split>.jsonl
+  # Suite nhiều test cố định — KHÔNG train, mỗi test trả lời 1 câu hỏi (xem docs/07/09).
+  # File thiếu (bộ S3 chưa build) sẽ được stages bỏ qua an toàn.
+  eval_fixed:
+    vivos_test: vivos.test.jsonl            # đọc studio — regression baseline gốc
+    cv_test: common_voice_vi.test.jsonl     # đọc crowdsource mic thường (so exp04)
+    fleurs_test: fleurs_vi.test.jsonl       # đọc studio chuẩn (benchmark quốc tế)
+    vlsp_test: vlsp2020_100h.test.jsonl     # đọc tin tức formal
+    lsvsc_test: lsvsc.test.jsonl            # tự nhiên đa dialect/emotion
+    fosd_test: fosd.test.jsonl              # đọc FPT
+    # S3 (thêm khi build xong): vietsuperspeech_test (hội thoại~callbot), bud500_test (bulk 3 miền)
+  train_sets:                 # thêm dataset = thêm 1 dòng {name, weight}
+    - {name: vivos, weight: 3}
+    - {name: common_voice_vi, weight: 3}
+    - {name: fleurs_vi, weight: 3}
+    - {name: infore1, weight: 1}
+
+optim:
+  name: adamw
+  lr: 1.0e-4
+  weight_decay: 1.0e-3
+  sched: {name: CosineAnnealing, min_lr: 1.0e-6}   # warmup_steps auto = min(500, total//10)
+
+train:
+  batch_size: 32
+  accum_grad: 8
+  num_workers: 8
+  epochs: 30
+  precision: bf16-mixed       # GB10; CPU smoke tự ép 32
+  max_minutes: 480
+  max_duration: 30.0
+  min_duration: 0.3
+  bucketing: false            # bật khi dùng tarred (nấc lớn)
+  spec_augment: {freq_masks: 2, time_masks: 8}
+
+checkpoint:
+  save_top_k: 3
+  monitor: val_wer
+  mode: min
+  every_n_train_steps: 2000
+  ema: 0.999                  # null = tắt EMA

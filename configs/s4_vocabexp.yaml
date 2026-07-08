@@ -1,0 +1,55 @@
+# Cửa 2 (task 08) — fine-tune model đã phẫu thuật vocab expansion (thêm f/j/w/z).
+# Init từ s3-vocabexp.nemo (tokenizer 1028, token cũ + blank giữ nguyên, 4 token mới bị ép im).
+# freeze_encoder=true: encoder đã nghe đúng âm loanword; chỉ dạy decoder+joint PHÁT token mới.
+# Data = ĐÚNG mix S3 nhưng thay vietsuperspeech -> vietsuperspeech_clean (lọc 9,4% english-heavy nhãn nhiễu).
+# Giữ replay + cap y S3 để không quên 9 test. change_vocabulary=false (tokenizer đã nằm trong .nemo).
+
+run:
+  id: s4-vocabexp-ft
+  stage: s4
+  artifacts_dir: /srv/team-share/datasets/asr_vi/_runs
+  backup_dir: /srv/team-share/models/asr_vi
+
+model:
+  init_from: /srv/team-share/models/asr_vi/s3-vocabexp.nemo
+  change_vocabulary: false
+  freeze_encoder: true
+
+data:
+  eval_fixed:
+    vivos_test: vivos.test.jsonl
+    cv_test: common_voice_vi.test.jsonl
+    fleurs_test: fleurs_vi.test.jsonl
+    vlsp_test: vlsp2020_100h.test.jsonl
+    lsvsc_test: lsvsc.test.jsonl
+    fosd_test: fosd.test.jsonl
+    vietsuperspeech_test: vietsuperspeech.test.jsonl            # full 1000 (giữ để so lịch sử)
+    vietsuperspeech_inscope: vietsuperspeech.test.inscope.jsonl  # 842 — THƯỚC CHÍNH task 08
+    bud500_test: bud500.test.jsonl
+    vietmed_test: vietmed.test.jsonl
+  # MIX GỌN nhắm f/j/w/z (không phải full curriculum): encoder đóng băng nên chỉ cần dạy
+  # decoder+joint PHÁT token mới. Bỏ audiobook + bud500-full (0% f/j/w/z, chỉ tốn compute).
+  # Giữ vietsuperspeech_clean (gold f/j/w/z 27%) + viVoice nhẹ + replay đủ 7 domain giữ 9 test.
+  # ~124k dòng/epoch -> 2 epoch vừa 1 đêm khi CHIA GPU với YOLO.
+  train_sets:
+    - {name: vietsuperspeech_clean, weight: 1}          # 54k — gold f/j/w/z (27%), domain callbot
+    - {name: vivoice, weight: 1, cap: 15000}            # spontaneous, thêm f/j/w/z (4,8%)
+    # --- Replay chống quên (giữ 9 test) ---
+    - {name: vivos, weight: 2}                          # đọc studio (giữ vivos_test)
+    - {name: common_voice_vi, weight: 2}               # mic thường
+    - {name: fleurs_vi, weight: 2}                      # studio chuẩn
+    - {name: lsvsc, weight: 1, cap: 6000}              # tự nhiên đa miền
+    - {name: vlsp2020_100h, weight: 1, cap: 6000}      # tin tức formal
+    - {name: fosd, weight: 1, cap: 4000}               # đọc FPT
+    - {name: bud500, weight: 1, cap: 6000}             # hội thoại 3 miền (giữ bud500_test)
+
+optim:
+  lr: 1.0e-4                    # = S3; giữ token cũ ấm, chỉ hâm 4 token mới
+
+train:
+  epochs: 2                     # fine-tune ngắn: kích hoạt token mới, không cần lâu
+  max_minutes: 480             # trần 8h (chia GPU YOLO ~0,27 it/s) -> dừng kịp sáng, vẫn eval+save
+  val_check_interval: 0.5      # 2 lần/epoch -> có ckpt trung gian eval sáng mai nếu chưa đủ 2 epoch
+
+checkpoint:
+  every_n_train_steps: 500     # top-3 theo val_wer

@@ -17,7 +17,6 @@ Lệnh (account qua deploy/kaggle/accounts.json + ~/.kaggle/<slug>/kaggle.json):
         --module asr_lab.train.finetune_vivos --script-args "--epochs 40"
     uv run python -m asr_lab.deploy.kaggle poll   --account kyhoolee --kernel asr-ft-vivos
     uv run python -m asr_lab.deploy.kaggle pull   --account kyhoolee --kernel asr-ft-vivos
-    uv run python -m asr_lab.deploy.kaggle watch  --account kyhoolee --kernel asr-ft-vivos --run-id vivos-fc-ctc-v2norm
 """
 from __future__ import annotations
 
@@ -28,7 +27,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 # .../src/asr_lab/deploy/kaggle.py → repo root = parents[3]
@@ -317,87 +315,6 @@ def _write_provenance(dst: Path, **meta) -> None:
     (dst / "provenance.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
 
 
-def _copy_if_changed(src: Path, dst: Path) -> bool:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if dst.exists() and src.stat().st_size == dst.stat().st_size:
-        if src.stat().st_size > 10_000_000:
-            return False
-        if src.read_bytes() == dst.read_bytes():
-            return False
-    shutil.copy2(src, dst)
-    return True
-
-
-def _sync_tree(src: Path, dst: Path) -> tuple[int, int]:
-    copied = 0
-    skipped = 0
-    for item in sorted(src.rglob("*")):
-        if not item.is_file():
-            continue
-        rel = item.relative_to(src)
-        if _copy_if_changed(item, dst / rel):
-            copied += 1
-        else:
-            skipped += 1
-    return copied, skipped
-
-
-def _promote_runs_from_scratch(
-    scratch: Path,
-    *,
-    account: str,
-    kernel: str,
-    user: str,
-    update_existing: bool = False,
-    run_id_filter: str | None = None,
-) -> list[Path]:
-    runs = sorted({p.parent for p in scratch.rglob("status.json")})
-    if run_id_filter:
-        runs = [run for run in runs if run.name == run_id_filter]
-    if not runs:
-        print("[pull] không thấy run-dir (status.json); kernel chạy xong hoặc Save Version chưa?")
-        return []
-
-    dst_root = REPO_ROOT / "artifacts" / "runs"
-    dst_root.mkdir(parents=True, exist_ok=True)
-    promoted: list[Path] = []
-    skipped: list[str] = []
-    for src in runs:
-        run_id = src.name
-        dst = dst_root / run_id
-        if dst.exists() and not update_existing:
-            skipped.append(run_id)
-            continue
-        copied, unchanged = _sync_tree(src, dst)
-        _write_provenance(
-            dst,
-            method="kaggle",
-            account=account,
-            kernel=kernel,
-            source=f"{user}/{kernel}",
-            synced_utc=datetime_utc(),
-        )
-        promoted.append(dst)
-        print(f"[pull] sync {run_id} -> {dst} | copied={copied} unchanged={unchanged}")
-    if skipped:
-        print(f"[pull] bỏ qua (đã có): {', '.join(sorted(set(skipped)))}")
-    return promoted
-
-
-def datetime_utc() -> str:
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _tail_file(path: Path, lines: int) -> None:
-    if lines <= 0 or not path.exists():
-        return
-    content = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    print(f"\n--- tail {path} ({min(lines, len(content))}/{len(content)} lines) ---")
-    print("\n".join(content[-lines:]))
-
-
 def cmd_pull(args):
     """Tải output kernel về scratch rồi đẩy mỗi run-dir (có status.json) về artifacts/runs/<id>/."""
     cfg = load_accounts()[args.account]
@@ -407,69 +324,28 @@ def cmd_pull(args):
     scratch.mkdir(parents=True, exist_ok=True)
     print(f"== Pull {user}/{args.kernel} -> {scratch} (scratch) ==")
     run([KAGGLE, "kernels", "output", f"{user}/{args.kernel}", "-p", scratch, "-o"], env)
-    promoted = _promote_runs_from_scratch(
-        scratch,
-        account=args.account,
-        kernel=args.kernel,
-        user=user,
-        update_existing=False,
-    )
-    print(f"[pull] xong: {len(promoted)} run mới về artifacts/runs/.")
 
-
-def cmd_watch(args):
-    """Poll Kaggle, pull outputs when available, and print the local run log tail."""
-    cfg = load_accounts()[args.account]
-    user, env = username_of(cfg), account_env(cfg)
-    scratch = (Path(args.dest) if args.dest
-               else REPO_ROOT / "artifacts" / "_pull" / f"{args.account}-{args.kernel}")
-    scratch.mkdir(parents=True, exist_ok=True)
-    interval = max(30, int(args.interval))
-    print(f"== Watch {user}/{args.kernel} -> {scratch} every {interval}s ==")
-    print("Dừng bằng Ctrl+C. Với notebook chạy tay trên browser, hãy Save Version để Kaggle xuất output.")
-
-    while True:
-        status = run(
-            [KAGGLE, "kernels", "status", f"{user}/{args.kernel}"],
-            env,
-            capture_output=True,
-            text=True,
-        )
-        status_text = (status.stdout or status.stderr or "").strip()
-        print(f"\n[{datetime_utc()}] status: {status_text or 'unknown'}")
-
-        pulled = run(
-            [KAGGLE, "kernels", "output", f"{user}/{args.kernel}", "-p", scratch, "-o"],
-            env,
-            capture_output=True,
-            text=True,
-        )
-        if pulled.returncode != 0:
-            msg = (pulled.stderr or pulled.stdout or "").strip()
-            print(f"[watch] chưa pull được output: {msg[-600:]}")
-        else:
-            synced = _promote_runs_from_scratch(
-                scratch,
-                account=args.account,
-                kernel=args.kernel,
-                user=user,
-                update_existing=True,
-                run_id_filter=args.run_id,
-            )
-            for run_dir in synced:
-                logs = sorted(run_dir.rglob("run.log"))
-                if logs:
-                    _tail_file(logs[-1], args.tail)
-                manifest = run_dir / "checkpoints" / "checkpoint_manifest.json"
-                if manifest.exists():
-                    _tail_file(manifest, min(args.tail, 40))
-
-        lowered = status_text.lower()
-        finished_markers = ("complete", "error", "failed", "cancelled", "canceled")
-        if args.once or any(marker in lowered for marker in finished_markers):
-            print("[watch] dừng watcher.")
-            return
-        time.sleep(interval)
+    runs = sorted({p.parent for p in scratch.rglob("status.json")})
+    if not runs:
+        print("[pull] không thấy run-dir (status.json); kernel chạy xong chưa?")
+        return
+    dst_root = REPO_ROOT / "artifacts" / "runs"
+    dst_root.mkdir(parents=True, exist_ok=True)
+    promoted, skipped = [], []
+    for src in runs:
+        run_id = src.name
+        dst = dst_root / run_id
+        if dst.exists():
+            skipped.append(run_id)  # artifact bất biến, không ghi đè
+            continue
+        shutil.copytree(src, dst)
+        _write_provenance(dst, method="kaggle", account=args.account,
+                          kernel=args.kernel, source=f"{user}/{args.kernel}")
+        promoted.append(run_id)
+        print(f"[pull] đẩy {run_id} -> {dst}")
+    if skipped:
+        print(f"[pull] bỏ qua (đã có): {', '.join(sorted(set(skipped)))}")
+    print(f"[pull] xong: {len(set(promoted))} run về artifacts/runs/.")
 
 
 def main():
@@ -499,14 +375,6 @@ def main():
     p.add_argument("--kernel", required=True)
     p.add_argument("--dest", default=None, help="Thư mục tải thô; mặc định artifacts/_pull/<account>-<kernel>.")
     p.set_defaults(fn=cmd_pull)
-    p = sub.add_parser("watch"); p.add_argument("--account", required=True)
-    p.add_argument("--kernel", required=True)
-    p.add_argument("--run-id", default=None, help="Chỉ sync một run-id, vd vivos-fc-ctc-v2norm.")
-    p.add_argument("--interval", type=int, default=300, help="Số giây giữa mỗi lần poll/pull; tối thiểu 30.")
-    p.add_argument("--tail", type=int, default=80, help="Số dòng cuối của run.log in ra terminal local.")
-    p.add_argument("--once", action="store_true", help="Pull một lần rồi thoát.")
-    p.add_argument("--dest", default=None, help="Thư mục tải thô; mặc định artifacts/_pull/<account>-<kernel>.")
-    p.set_defaults(fn=cmd_watch)
     args = ap.parse_args()
     guard_access_token()
     args.fn(args)

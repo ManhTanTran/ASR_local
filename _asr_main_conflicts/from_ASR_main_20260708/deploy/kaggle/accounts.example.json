@@ -1,0 +1,7 @@
+{
+  "_note": "Copy file này -> accounts.json (đã gitignore). Mỗi account: thả kaggle.json vào config_dir, thêm 1 dòng. KHÔNG để access_token trong ~/.kaggle (hijack mọi account).",
+  "accounts": [
+    { "slug": "kyhoolee", "config_dir": "~/.kaggle" },
+    { "slug": "acc2", "config_dir": "~/.kaggle/acc2" }
+  ]
+}

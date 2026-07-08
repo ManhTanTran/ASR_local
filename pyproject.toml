@@ -1,0 +1,32 @@
+[project]
+name = "nvidia-asr-nemo"
+version = "0.1.0"
+description = "Lab doc hieu kien truc + chay thu suy luan NeMo ASR tren CPU"
+requires-python = ">=3.12"  # NeMo 2.7.x yeu cau Python >= 3.12
+dependencies = [
+    "ipykernel>=7.3.0",
+    # Pin theo release on dinh de tranh bam main (de vo). Bump co chu dich roi test lai.
+    "nbformat>=5.10.4",
+    "nemo-toolkit[asr]==2.7.3",
+    "pandas>=3.0.3",
+    "torch==2.7.*",
+    "torchaudio==2.7.*",
+]
+
+# Package code o src/ (layout src) -> cai editable de chay `python -m asr_lab.*` o moi noi.
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Buoc torch/torchaudio lay tu index CPU thay vi ban CUDA mac dinh -> cai nhe, hop may khong GPU.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+torchaudio = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true  # chi dung index nay cho gói duoc khai bao o [tool.uv.sources], khong anh huong gói khac

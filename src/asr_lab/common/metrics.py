@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable
 
 
@@ -15,6 +16,7 @@ def normalize_en(text: str) -> str:
 
 def normalize_vi(text: str) -> str:
     """Normalize Vietnamese ASR text while preserving accented characters."""
+    text = unicodedata.normalize("NFC", text)
     text = text.lower()
     text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
     return re.sub(r"\s+", " ", text).strip()

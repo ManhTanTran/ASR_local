@@ -1,0 +1,52 @@
+# Nhánh REBUILD-VOCAB — gỡ trần loanword f/j/w/z. Continue từ s3-fc115m-full.nemo.
+# Tokenizer S1 (kế thừa tới S3) build trên corpus VIVOS-era -> 0 token chứa f/j/w/z.
+# Đo thật: 34,1% câu callbot (vietsuperspeech), 13,4% fleurs, 9,4% vlsp chứa ký tự này -> <unk>.
+# Cách gỡ: change_vocabulary=true -> build tokenizer MỚI trên corpus S3 (có f/j/w/z từ viVoice),
+# giữ encoder S3 (mạnh), decoder+joint dựng lại sẽ học lại vocab đủ chữ.
+# Mix train = y hệt S3 để decoder+joint học lại toàn domain, KHÔNG regression.
+
+run:
+  id: s3rv-fc115m-full
+  stage: s3rv
+
+model:
+  init_from: /srv/team-share/models/asr_vi/s3-fc115m-full.nemo
+  change_vocabulary: true       # dựng tokenizer + decoder+joint mới (encoder giữ nguyên)
+  freeze_encoder: false         # full FT: cho encoder thích nghi nhẹ với âm học loanword
+  tokenizer:
+    dir: null                   # null + change_vocabulary=true -> build từ train manifest gộp
+    vocab_size: 1024
+    type: bpe
+
+data:
+  # Suite 9 test y hệt S3 (so trực tiếp s3-fc115m-full).
+  eval_fixed:
+    vivos_test: vivos.test.jsonl
+    cv_test: common_voice_vi.test.jsonl
+    fleurs_test: fleurs_vi.test.jsonl
+    vlsp_test: vlsp2020_100h.test.jsonl
+    lsvsc_test: lsvsc.test.jsonl
+    fosd_test: fosd.test.jsonl
+    vietsuperspeech_test: vietsuperspeech.test.jsonl
+    bud500_test: bud500.test.jsonl
+    vietmed_test: vietmed.test.jsonl
+  train_sets:                    # === y hệt s3_conversational.yaml ===
+    - {name: vietsuperspeech, weight: 2}
+    - {name: vivoice, weight: 1, cap: 150000}
+    - {name: bud500, weight: 1, cap: 120000}
+    - {name: phoaudiobook, weight: 1, cap: 40000}
+    - {name: infore2_audiobooks, weight: 1, cap: 30000}
+    - {name: vivos, weight: 2}
+    - {name: common_voice_vi, weight: 2}
+    - {name: fleurs_vi, weight: 2}
+    - {name: fosd, weight: 1}
+    - {name: vlsp2020_100h, weight: 1}
+    - {name: lsvsc, weight: 1}
+    - {name: infore1, weight: 1}
+
+train:
+  epochs: 3                      # decoder+joint reinit cần vài epoch phục hồi; encoder mạnh -> đủ
+  max_minutes: 1500              # rộng tay, tránh bẫy timer-trong-checkpoint (không lặp lỗi resume)
+
+checkpoint:
+  every_n_train_steps: 500
